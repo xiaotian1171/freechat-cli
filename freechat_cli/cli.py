@@ -6,12 +6,14 @@ import sys
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.text import Text
+from rich.live import Live
 
-from .chat import ChatClient
+from . import __version__
+from .chat import ChatClient, Conversation
 from .config import Config
 
 console = Console()
+err_console = Console(stderr=True)
 
 
 def print_welcome(client: ChatClient):
@@ -30,17 +32,45 @@ def print_welcome(client: ChatClient):
 def print_help():
     help_text = """
 [bold]Commands:[/bold]
-  /model <name>     Switch model
-  /system <prompt>  Set system prompt
-  /save [file]      Save conversation
-  /load <file>      Load conversation
-  /clear            Clear history
-  /models           List available models
-  /config           Show current config
-  /help             Show this help
-  /quit             Exit
+  /model <name>      Switch model (auto-saves config)
+  /system <prompt>   Set system prompt
+  /save [file]       Save conversation
+  /load <file>       Load conversation
+  /clear             Clear history
+  /reset             Reset conversation (alias for /clear)
+  /models            List available models
+  /config            Show current config
+  /config save       Save current config to file
+  /copy              Copy last response to clipboard
+  /last              Show last response
+  /help              Show this help
+  /quit              Exit
 """
     console.print(Panel(help_text, title="Help", border_style="blue"))
+
+
+def _copy_to_clipboard(text: str) -> bool:
+    """Try to copy text to clipboard. Returns True on success."""
+    try:
+        import pyperclip
+        pyperclip.copy(text)
+        return True
+    except ImportError:
+        pass
+    # Fallback: use system clipboard tools
+    try:
+        import subprocess
+        if sys.platform == "darwin":
+            subprocess.run(["pbcopy"], input=text.encode(), check=True)
+        elif sys.platform == "linux":
+            subprocess.run(["xclip", "-selection", "clipboard"], input=text.encode(), check=True)
+        elif sys.platform == "win32":
+            subprocess.run(["clip"], input=text.encode(), check=True)
+        else:
+            return False
+        return True
+    except Exception:
+        return False
 
 
 def handle_command(client: ChatClient, line: str) -> bool:
@@ -49,7 +79,7 @@ def handle_command(client: ChatClient, line: str) -> bool:
     cmd = parts[0].lower()
     arg = parts[1] if len(parts) > 1 else ""
 
-    if cmd == "/quit" or cmd == "/exit":
+    if cmd in ("/quit", "/exit", "/q"):
         console.print("[dim]Goodbye![/dim]")
         return False
     elif cmd == "/help":
@@ -59,14 +89,16 @@ def handle_command(client: ChatClient, line: str) -> bool:
             console.print(f"Current model: [cyan]{client.config.model}[/cyan]")
         else:
             client.set_model(arg)
-            console.print(f"Switched to model: [cyan]{arg}[/cyan]")
+            client.config.save()
+            console.print(f"Switched to model: [cyan]{arg}[/cyan] (config saved)")
     elif cmd == "/system":
         if not arg:
             prompt = client.conversation.system_prompt
             console.print(f"System prompt: {prompt or '(none)'}")
         else:
             client.set_system_prompt(arg)
-            console.print(f"System prompt set: [dim]{arg[:80]}...[/dim]" if len(arg) > 80 else f"System prompt set: [dim]{arg}[/dim]")
+            display = arg[:80] + "..." if len(arg) > 80 else arg
+            console.print(f"System prompt set: [dim]{display}[/dim]")
     elif cmd == "/save":
         try:
             path = client.conversation.save(arg if arg else None)
@@ -75,17 +107,17 @@ def handle_command(client: ChatClient, line: str) -> bool:
             console.print(f"[red]Save failed: {e}[/red]")
     elif cmd == "/load":
         try:
-            client.conversation = ChatClient.__new__(ChatClient)
-            # Reload conversation
-            from .chat import Conversation
             loaded = Conversation.load(arg, max_history=client.config.max_history)
             client.conversation = loaded
+            if loaded.model and loaded.model != client.config.model:
+                client.set_model(loaded.model)
+                console.print(f"Restored model: [cyan]{loaded.model}[/cyan]")
             console.print(f"Loaded conversation: [dim]{arg}[/dim] ({loaded.turn_count} turns)")
         except FileNotFoundError as e:
             console.print(f"[red]{e}[/red]")
         except Exception as e:
             console.print(f"[red]Load failed: {e}[/red]")
-    elif cmd == "/clear":
+    elif cmd in ("/clear", "/reset"):
         client.conversation.clear()
         console.print("[dim]Conversation cleared.[/dim]")
     elif cmd == "/models":
@@ -96,9 +128,30 @@ def handle_command(client: ChatClient, line: str) -> bool:
         except Exception as e:
             console.print(f"[red]Failed to fetch models: {e}[/red]")
     elif cmd == "/config":
-        info = client.config.to_dict()
-        lines = [f"  [bold]{k}[/bold]: {v}" for k, v in info.items()]
-        console.print(Panel("\n".join(lines), title="Config", border_style="yellow"))
+        if arg == "save":
+            try:
+                client.config.save()
+                console.print("[green]Config saved.[/green]")
+            except Exception as e:
+                console.print(f"[red]Save failed: {e}[/red]")
+        else:
+            info = client.config.to_dict()
+            lines = [f"  [bold]{k}[/bold]: {v}" for k, v in info.items()]
+            console.print(Panel("\n".join(lines), title="Config", border_style="yellow"))
+    elif cmd == "/copy":
+        last = client.conversation.last_response
+        if not last:
+            console.print("[yellow]No response to copy.[/yellow]")
+        elif _copy_to_clipboard(last):
+            console.print("[green]Copied last response to clipboard.[/green]")
+        else:
+            console.print("[yellow]Clipboard not available. Install pyperclip: pip install pyperclip[/yellow]")
+    elif cmd == "/last":
+        last = client.conversation.last_response
+        if not last:
+            console.print("[yellow]No response yet.[/yellow]")
+        else:
+            console.print(Markdown(last))
     else:
         console.print(f"[yellow]Unknown command: {cmd}. Type /help for commands.[/yellow]")
 
@@ -124,7 +177,6 @@ def interactive_mode(client: ChatClient, no_stream: bool = False):
                 break
             continue
 
-        # Send message and stream response
         console.print()
         try:
             if no_stream:
@@ -134,17 +186,16 @@ def interactive_mode(client: ChatClient, no_stream: bool = False):
                 console.print(Markdown(response_text))
             else:
                 response_text = ""
-                with console.status("[dim]Thinking...[/dim]", spinner="dots"):
-                    first_chunk = True
+                with Live(console=console, refresh_per_second=8, vertical_overflow="visible") as live:
                     for chunk in client.chat(user_input, stream=True):
-                        if first_chunk:
-                            first_chunk = False
                         response_text += chunk
-                    # Render full markdown response
-                    console.print(Markdown(response_text))
+                        live.update(Markdown(response_text))
+                console.print()
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Interrupted.[/yellow]")
+        except RuntimeError as e:
+            console.print(f"[red]{e}[/red]")
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
 
@@ -162,12 +213,13 @@ def main():
     parser.add_argument("--api-key", default=None, help="API key (not needed for Pollinations)")
     parser.add_argument("--base-url", default=None, help="API base URL")
     parser.add_argument("--max-history", type=int, default=None, help="Max conversation turns")
+    parser.add_argument("--timeout", type=int, default=None, help="Request timeout in seconds (default: 60)")
     parser.add_argument("--no-stream", action="store_true", help="Disable streaming")
     parser.add_argument("--list-models", action="store_true", help="List available models and exit")
+    parser.add_argument("--version", "-v", action="version", version=f"%(prog)s {__version__}")
 
     args = parser.parse_args()
 
-    # Load config and apply CLI overrides
     config = Config.load()
     if args.model:
         config.model = args.model
@@ -179,31 +231,37 @@ def main():
         config.base_url = args.base_url
     if args.max_history:
         config.max_history = args.max_history
+    if args.timeout:
+        config.timeout = args.timeout
 
     client = ChatClient(config=config)
 
     if args.list_models:
-        models = client.list_models()
-        for m in models:
-            console.print(f"  {m}")
+        try:
+            models = client.list_models()
+            for m in models:
+                console.print(f"  {m}")
+        except Exception as e:
+            err_console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
         return
 
     if args.query:
-        # One-shot mode
         try:
             response_text = ""
             for chunk in client.chat(args.query, stream=not args.no_stream):
-                if args.no_stream:
-                    response_text += chunk
-                else:
+                response_text += chunk
+                if not args.no_stream:
                     print(chunk, end="", flush=True)
-                    response_text += chunk
             if args.no_stream:
                 console.print(Markdown(response_text))
             else:
                 print()
+        except RuntimeError as e:
+            err_console.print(f"[red]{e}[/red]")
+            sys.exit(1)
         except Exception as e:
-            console.print(f"[red]Error: {e}[/red]", file=sys.stderr)
+            err_console.print(f"[red]Error: {e}[/red]")
             sys.exit(1)
     else:
         interactive_mode(client, no_stream=args.no_stream)

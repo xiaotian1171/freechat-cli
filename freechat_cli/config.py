@@ -8,6 +8,7 @@ from typing import Optional
 DEFAULT_BASE_URL = "https://text.pollinations.ai/openai"
 DEFAULT_MODEL = "openai"
 DEFAULT_MAX_HISTORY = 20
+DEFAULT_TIMEOUT = 60
 CONFIG_DIR = Path.home() / ".freechat"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
@@ -22,12 +23,14 @@ class Config:
         max_history: int = DEFAULT_MAX_HISTORY,
         api_key: Optional[str] = None,
         base_url: str = DEFAULT_BASE_URL,
+        timeout: int = DEFAULT_TIMEOUT,
     ):
         self.model = model
         self.system_prompt = system_prompt
         self.max_history = max_history
         self.api_key = api_key
         self.base_url = base_url
+        self.timeout = timeout
 
     @classmethod
     def load(cls) -> "Config":
@@ -41,6 +44,7 @@ class Config:
                     max_history=data.get("max_history", DEFAULT_MAX_HISTORY),
                     api_key=data.get("api_key") or os.environ.get("FREECHAT_API_KEY"),
                     base_url=data.get("base_url", DEFAULT_BASE_URL),
+                    timeout=data.get("timeout", DEFAULT_TIMEOUT),
                 )
             except (json.JSONDecodeError, KeyError):
                 pass
@@ -58,6 +62,7 @@ class Config:
             "max_history": self.max_history,
             "api_key": self.api_key or "",
             "base_url": self.base_url,
+            "timeout": self.timeout,
         }
         CONFIG_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -68,4 +73,5 @@ class Config:
             "max_history": self.max_history,
             "api_key": "***" if self.api_key else "(none)",
             "base_url": self.base_url,
+            "timeout": self.timeout,
         }
