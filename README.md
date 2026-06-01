@@ -1,29 +1,30 @@
 # FreeChat CLI
 
-A zero-config command-line AI chat tool. No API key required — just install and start chatting.
+Zero-config AI chat in your terminal. No API key required — install and start chatting.
 
-Powered by [Pollinations.ai](https://pollinations.ai) free API by default. Optionally bring your own API key for any OpenAI-compatible endpoint.
+Powered by [Pollinations.ai](https://pollinations.ai) free API. Optionally bring your own API key for any OpenAI-compatible endpoint.
 
 ## Features
 
-- 🚀 **Zero config** — works out of the box with Pollinations free API
-- 🤖 **Multi-model** — switch between openai, mistral, deepseek, qwen, gemini, llama, grok, claude and more
-- ⚡ **Streaming** — real-time streaming output with Markdown rendering
-- 💬 **Multi-turn** — conversation context preserved across messages
-- 💾 **Save/Load** — persist and resume conversations
-- 🎨 **Rich UI** — Markdown rendering, syntax highlighting, and themed panels
-- 🔧 **Configurable** — custom API endpoints, system prompts, timeout settings
-- 📋 **Clipboard** — copy last response with `/copy`
+- **Zero config** — works out of the box with Pollinations free API
+- **Multi-model** — openai, mistral, deepseek, qwen, gemini, llama, grok, claude and more
+- **Streaming** — real-time streaming with Markdown rendering
+- **Multi-turn** — conversation context preserved, with token estimation
+- **Presets** — built-in role presets: coding, creative, translator, shell, tutor…
+- **Persistence** — save/load conversations (JSON), export to Markdown
+- **Pipe mode** — pipe input from stdin for scripting
+- **Image generation** — generate image URLs via Pollinations
+- **Clipboard** — copy responses with `/copy`
+- **Retry** — automatic retry with exponential backoff
+- **Rich UI** — syntax highlighting, tables, panels, progress info
 
 ## Installation
-
-### From PyPI (recommended)
 
 ```bash
 pip install freechat-cli
 ```
 
-### From source
+Or from source:
 
 ```bash
 git clone https://github.com/xiaotian1171/freechat-cli.git
@@ -31,148 +32,168 @@ cd freechat-cli
 pip install .
 ```
 
-### For development
-
-```bash
-pip install -e ".[dev]"
-```
-
 ## Quick Start
 
-Just chat — no setup needed:
-
 ```bash
-freechat "Explain quantum computing in simple terms"
-```
+# Just chat — no setup needed
+freechat "Explain quantum computing simply"
 
-Interactive mode:
-
-```bash
+# Interactive mode
 freechat
-```
 
-Specify a model:
-
-```bash
+# Use a different model
 freechat -m deepseek "Write a haiku about debugging"
+
+# Apply a preset
+freechat -p coding "Write a Python web scraper"
+
+# Pipe input
+echo "Explain this error:" | cat - error.log | freechat
 ```
 
-## Usage
-
-### One-shot Query
-
-```bash
-freechat "your question here"
-```
-
-### Interactive Chat
-
-```bash
-freechat
-```
-
-### Interactive Commands
+## Interactive Commands
 
 | Command | Description |
 |---------|-------------|
 | `/model <name>` | Switch model (auto-saves config) |
 | `/system <prompt>` | Set system prompt |
-| `/save [file]` | Save conversation |
+| `/preset [name]` | List or apply role preset |
+| `/save [file]` | Save conversation to JSON |
 | `/load <file>` | Load conversation |
+| `/export [file]` | Export as Markdown |
+| `/history` | List saved conversations |
 | `/clear` | Clear conversation history |
 | `/reset` | Reset conversation (alias for /clear) |
+| `/undo` | Undo last exchange |
 | `/models` | List available models |
+| `/tokens` | Show estimated token usage |
 | `/config` | Show current config |
 | `/config save` | Save current config |
 | `/copy` | Copy last response to clipboard |
 | `/last` | Show last response |
+| `/image <desc>` | Generate image URL |
 | `/help` | Show commands |
-| `/quit` | Exit |
+| `/quit` | Exit (also /q, /exit) |
 
-### CLI Options
+## CLI Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `query` | — | One-shot query (omit for interactive) |
 | `--model`, `-m` | openai | Model to use |
 | `--system`, `-s` | none | System prompt |
+| `--preset`, `-p` | — | Apply a role preset |
 | `--api-key` | none | API key (not required for Pollinations) |
 | `--base-url` | https://text.pollinations.ai/openai | API base URL |
 | `--max-history` | 20 | Max conversation turns to keep |
-| `--timeout` | 60 | Request timeout in seconds |
+| `--timeout` | 120 | Request timeout in seconds |
+| `--max-retries` | 2 | Max retries on rate limit/timeout |
 | `--no-stream` | false | Disable streaming output |
 | `--list-models` | — | List available models and exit |
 | `--version`, `-v` | — | Show version |
 
-### Examples
+## Role Presets
 
-Chat with DeepSeek:
+Built-in presets for common use cases:
+
+| Preset | Description |
+|--------|-------------|
+| `coding` | Expert coding assistant |
+| `creative` | Creative writing partner |
+| `translator` | Professional translator (EN↔ZH) |
+| `concise` | Brief and direct answers |
+| `detailed` | Thorough explanations with examples |
+| `shell` | Shell and CLI expert |
+| `tutor` | Patient step-by-step tutor |
+| `reviewer` | Code review with severity ratings |
+
 ```bash
-freechat --model deepseek "Explain transformers architecture"
+# Apply preset via CLI
+freechat -p coding "Refactor this function"
+
+# Or in interactive mode
+/preset coding
 ```
 
-Use a custom provider:
+## Examples
+
 ```bash
-freechat --base-url https://api.groq.com/openai/v1 --api-key gsk_xxx --model llama33-70b
+# One-shot with DeepSeek
+freechat -m deepseek "Explain transformer architecture"
+
+# Custom provider with API key
+freechat --base-url https://api.groq.com/openai/v1 --api-key gsk_xxx -m llama33-70b "Hello"
+
+# Coding preset with system prompt override
+freechat -p coding -s "Focus on Python" "Write a FastAPI app"
+
+# Slow model with higher timeout
+freechat --timeout 180 -m deepseek-r1 "Solve: prove the Riemann hypothesis"
+
+# Pipe a file into the chat
+cat error.log | freechat "What's wrong with this output?"
+
+# Generate an image URL (interactive mode)
+/image a cat wearing sunglasses on a beach
+
+# Export conversation to Markdown
+/export my-chat.md
 ```
 
-Set a system prompt:
-```bash
-freechat --system "You are a helpful coding assistant" --model openai
+## Configuration
+
+`~/.freechat/config.json`:
+
+```json
+{
+  "model": "openai",
+  "system_prompt": "",
+  "max_history": 20,
+  "api_key": "",
+  "base_url": "https://text.pollinations.ai/openai",
+  "timeout": 120,
+  "max_retries": 2
+}
 ```
 
-Increase timeout for slow models:
-```bash
-freechat --timeout 120 --model deepseek-r1 "Solve this math problem: ..."
-```
+Environment variable: `FREECHAT_API_KEY`
 
-## Available Free Models (Pollinations)
-
-Run `/models` in interactive mode or:
+## Available Free Models
 
 ```bash
 freechat --list-models
 ```
 
-Common models: `openai`, `openai-large`, `mistral`, `mistral-large`, `deepseek`, `deepseek-r1`, `qwen`, `qwen-coder`, `gemini`, `llama`, `grok`, `claude`
+Common: `openai`, `openai-large`, `mistral`, `mistral-large`, `deepseek`, `deepseek-r1`, `qwen`, `qwen-coder`, `gemini`, `llama`, `grok`, `claude`
 
-## Configuration
-
-Create `~/.freechat/config.json` for persistent settings:
-
-```json
-{
-  "model": "openai",
-  "system_prompt": "You are a helpful assistant.",
-  "max_history": 20,
-  "api_key": "",
-  "base_url": "https://text.pollinations.ai/openai",
-  "timeout": 60
-}
-```
-
-Or set environment variable:
-```bash
-export FREECHAT_API_KEY=your-key-here
-```
-
-## Clipboard Support
-
-For the `/copy` command, install the optional dependency:
+## Optional Dependencies
 
 ```bash
+# Clipboard support for /copy
 pip install freechat-cli[clipboard]
+
+# More accurate token estimation
+pip install freechat-cli[token-accuracy]
 ```
 
-Or install pyperclip directly:
+## Development
+
 ```bash
-pip install pyperclip
-```
+git clone https://github.com/xiaotian1171/freechat-cli.git
+cd freechat-cli
+pip install -e ".[dev]"
 
-Without pyperclip, `/copy` will attempt to use system clipboard tools (pbcopy/xclip/clip).
+# Run tests
+pytest tests/ -v
+
+# Lint
+ruff check .
+ruff format .
+```
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.9+
 - openai >= 1.0
 - rich >= 13.0
 

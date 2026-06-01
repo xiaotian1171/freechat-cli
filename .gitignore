@@ -27,3 +27,9 @@ Thumbs.db
 
 # Env
 .env
+
+# Test / cache
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
