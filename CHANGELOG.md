@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-08-24
+
+### Added
+- **`/stats` command** — session statistics panel (model, turns, messages, token usage)
+- **Thinking spinner** — animated indicator while waiting for the first streamed chunk (reasoning models can take a moment before visible output)
+- **Status indicator** for `--no-stream` mode
+- **Native endpoint test suite** (`tests/test_chat.py`) — SSE parsing, plain-text parsing, request shape, legacy URL detection; no network required
+- README overhaul: badges, demo, full command/config reference, FAQ and troubleshooting
+
+### Changed
+- Default endpoint switched to the native Pollinations API (`https://text.pollinations.ai/`) per app review feedback, replacing the OpenAI-compatible `/openai` path
+- Native endpoint support implemented without the OpenAI SDK: streaming (SSE), non-streaming, model listing, retry with backoff
+- Anonymous free tier currently serves the `openai-fast` model (GPT-OSS 20B); point `--base-url` at any OpenAI-compatible endpoint for more
+
 ## [1.2.0] - 2026-06-02
 
 ### Added

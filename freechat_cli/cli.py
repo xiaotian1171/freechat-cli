@@ -6,11 +6,13 @@ conversation export, token estimation, and more.
 
 import argparse
 import sys
+import time
 
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.spinner import Spinner
 from rich.table import Table
 
 from . import __version__
@@ -27,16 +29,27 @@ err_console = Console(stderr=True)
 
 
 def print_welcome(client: ChatClient) -> None:
-    console.print(
-        Panel(
-            "[bold green]FreeChat CLI[/bold green] — Zero-config AI chat\n"
-            f"Model: [cyan]{client.config.model}[/cyan]  |  "
-            f"Endpoint: [dim]{client.config.base_url}[/dim]\n"
-            "Type [bold]/help[/bold] for commands, [bold]/quit[/bold] to exit",
-            title="Welcome",
-            border_style="green",
-        )
+    """Print the welcome banner with a session info table."""
+    banner = Panel(
+        "[bold green]⚡ FreeChat[/bold green] [dim]— zero-config AI chat in your terminal[/dim]\n"
+        "Type [bold]/help[/bold] for commands · [bold]/quit[/bold] to exit",
+        title=f"[bold]v{__version__}[/bold]",
+        border_style="green",
+        padding=(0, 2),
     )
+    console.print(banner)
+
+    info = Table(show_header=False, box=None, padding=(0, 1))
+    info.add_column(style="dim", justify="right")
+    info.add_column()
+    info.add_row("model", f"[cyan]{client.config.model}[/cyan]")
+    info.add_row("endpoint", f"[dim]{client.config.base_url}[/dim]")
+    if client.conversation.system_prompt:
+        sp = client.conversation.system_prompt
+        display = sp[:60] + "…" if len(sp) > 60 else sp
+        info.add_row("system", f"[dim]{display}[/dim]")
+    console.print(info)
+    console.print()
 
 
 def print_help() -> None:
@@ -59,6 +72,7 @@ def print_help() -> None:
   /models            List available models
   /config            Show current config
   /config save       Save current config
+  /stats             Show session statistics
   /tokens            Show estimated token usage
   /last              Show last response
   /copy              Copy last response to clipboard
@@ -247,6 +261,22 @@ def handle_command(client: ChatClient, line: str) -> bool:
             lines = [f"  [bold]{k}[/bold]: {v}" for k, v in info.items()]
             console.print(Panel("\n".join(lines), title="Config", border_style="yellow"))
 
+    # ── Stats ───────────────────────────────────────────────
+    elif cmd == "/stats":
+        conv = client.conversation
+        ctx_tokens = estimate_messages_tokens(conv.get_context())
+        total_tokens = estimate_messages_tokens(conv.messages)
+        stats = Table(show_header=False, box=None, padding=(0, 1))
+        stats.add_column(style="dim", justify="right")
+        stats.add_column()
+        stats.add_row("model", f"[cyan]{conv.model or client.config.model}[/cyan]")
+        stats.add_row("created", f"[dim]{conv.created_at}[/dim]")
+        stats.add_row("turns", str(conv.turn_count))
+        stats.add_row("messages", str(len(conv.messages)))
+        stats.add_row("context", f"[cyan]{ctx_tokens}[/cyan] tokens")
+        stats.add_row("total", f"[cyan]{total_tokens}[/cyan] tokens")
+        console.print(Panel(stats, title="Session Stats", border_style="blue"))
+
     # ── Tokens ──────────────────────────────────────────────
     elif cmd == "/tokens":
         ctx = client.conversation.get_context()
@@ -320,24 +350,26 @@ def interactive_mode(client: ChatClient, no_stream: bool = False) -> None:
         # ── Send message and stream response ────────────────
         console.print()
         try:
-            start_time = __import__("time").time()
+            start_time = time.time()
 
             if no_stream:
                 response_text = ""
-                for chunk in client.chat(user_input, stream=False):
-                    response_text += chunk
+                with console.status("[dim]Thinking…[/dim]", spinner="dots"):
+                    for chunk in client.chat(user_input, stream=False):
+                        response_text += chunk
                 console.print(Markdown(response_text))
             else:
                 response_text = ""
                 with Live(
                     console=console, refresh_per_second=10, vertical_overflow="visible"
                 ) as live:
+                    live.update(Spinner("dots", text="[dim]Thinking…[/dim]"))
                     for chunk in client.chat(user_input, stream=True):
                         response_text += chunk
                         live.update(Markdown(response_text))
                 console.print()
 
-            elapsed = __import__("time").time() - start_time
+            elapsed = time.time() - start_time
             tokens = estimate_messages_tokens(
                 [m for m in client.conversation.messages[-2:] if m["role"] == "assistant"]
             )

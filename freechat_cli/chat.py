@@ -5,12 +5,15 @@ Provides Conversation (history + serialization) and ChatClient (API calls).
 
 import json
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Generator, List, Optional
 from urllib.parse import quote
 
 from openai import APIConnectionError, APITimeoutError, OpenAI, RateLimitError
 
+from ._version import __version__
 from .config import Config
 from .utils import estimate_messages_tokens
 
@@ -240,11 +243,16 @@ class ChatClient:
     def chat(self, message: str, stream: bool = True) -> Generator[str, None, None]:
         """Send a message and yield response chunks.
 
+        Routes to the native Pollinations legacy endpoint when base_url points
+        at text.pollinations.ai, otherwise uses the OpenAI-compatible client.
         On rate limit or timeout, automatically retries with exponential backoff
         up to config.max_retries times before raising RuntimeError.
         """
         self.conversation.add_user(message)
         context = self.conversation.get_context()
+
+        if self._is_legacy_pollinations():
+            return self._chat_legacy(context, stream=stream)
 
         retries_remaining = self.config.max_retries
         delay = 1.0
@@ -307,9 +315,122 @@ class ChatClient:
         self.conversation.add_assistant(content)
         yield content
 
+    # ── Native Pollinations legacy endpoint ─────────────────────
+
+    def _is_legacy_pollinations(self) -> bool:
+        """True when base_url points at the native text.pollinations.ai endpoint."""
+        return self.config.base_url.rstrip("/").endswith("text.pollinations.ai")
+
+    def _legacy_request(self, context: list, stream: bool) -> dict:
+        """Build the HTTP request for the legacy Pollinations POST endpoint.
+
+        The anonymous free tier serves its default model; explicitly passing a
+        model name can route the request into a paid tier (HTTP 402/500), so it
+        is intentionally omitted.
+        """
+        body = {"messages": context}
+        if stream:
+            body["stream"] = True
+        headers = {"Content-Type": "application/json", "User-Agent": f"freechat-cli/{__version__}"}
+        if stream:
+            headers["Accept"] = "text/event-stream"
+        return urllib.request.Request(
+            self.config.base_url.rstrip("/") + "/",
+            data=json.dumps(body).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+
+    def _chat_legacy(self, context: list, stream: bool) -> Generator[str, None, None]:
+        """Dispatch a legacy-endpoint request and return the response generator.
+
+        This is intentionally NOT a generator function: the request (and its
+        retry/backoff loop) must fire eagerly when chat() is called, returning
+        the inner streaming/plain generator directly.
+        """
+        retries_remaining = self.config.max_retries
+        delay = 1.0
+
+        while True:
+            try:
+                req = self._legacy_request(context, stream=stream)
+                resp = urllib.request.urlopen(req, timeout=self.config.timeout)
+                if stream:
+                    return self._legacy_consume_sse(resp)
+                return self._legacy_consume_plain(resp)
+            except urllib.error.HTTPError as e:
+                if e.code in (429, 500, 502, 503, 504) and retries_remaining > 0:
+                    retries_remaining -= 1
+                    time.sleep(min(delay, 30.0))
+                    delay *= 2
+                    continue
+                raise RuntimeError(f"Pollinations API error: HTTP {e.code}")
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                reason = getattr(e, "reason", e)
+                raise RuntimeError(f"Cannot connect to Pollinations: {reason}")
+
+    def _legacy_consume_plain(self, resp) -> Generator[str, None, None]:
+        """Read a non-streaming (text/plain) response body."""
+        text = resp.read().decode("utf-8", errors="replace").strip()
+        if text.startswith("{"):
+            try:
+                data = json.loads(text)
+                if isinstance(data, dict) and "error" in data:
+                    raise RuntimeError(f"Pollinations API error: {data['error']}")
+            except json.JSONDecodeError:
+                pass
+        self.conversation.add_assistant(text)
+        yield text
+
+    def _legacy_consume_sse(self, resp) -> Generator[str, None, None]:
+        """Parse an SSE stream of OpenAI-style chunks from the legacy endpoint."""
+        full_response = ""
+        for raw in resp:
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line.startswith("data:"):
+                continue
+            payload = line[len("data:"):].strip()
+            if not payload or payload == "[DONE]":
+                if payload == "[DONE]":
+                    break
+                continue
+            try:
+                chunk = json.loads(payload)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(chunk, dict) and "error" in chunk:
+                raise RuntimeError(f"Pollinations API error: {chunk['error']}")
+            choices = chunk.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta") or {}
+            content = delta.get("content")
+            if content:
+                full_response += content
+                yield content
+        self.conversation.add_assistant(full_response or "")
+
+    def _legacy_list_models(self) -> List[str]:
+        """Fetch model names from the legacy /models endpoint."""
+        url = self.config.base_url.rstrip("/") + "/models"
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=self.config.timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        names = set()
+        for item in data if isinstance(data, list) else []:
+            name = item.get("name")
+            if name:
+                names.add(name)
+        return sorted(names)
+
     def list_models(self) -> List[str]:
         """Fetch available models from the API endpoint."""
         try:
+            if self._is_legacy_pollinations():
+                models = self._legacy_list_models()
+                if models:
+                    return models
+                raise RuntimeError("empty model list")
             models = self.client.models.list()
             return sorted(m.id for m in models.data)
         except Exception:

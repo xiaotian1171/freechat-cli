@@ -1,22 +1,48 @@
 # FreeChat CLI
 
+[![PyPI version](https://img.shields.io/pypi/v/freechat-cli.svg)](https://pypi.org/project/freechat-cli/)
+[![Python](https://img.shields.io/pypi/pyversions/freechat-cli.svg)](https://pypi.org/project/freechat-cli/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/xiaotian1171/freechat-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaotian1171/freechat-cli/actions)
+
 Zero-config AI chat in your terminal. No API key required — install and start chatting.
 
-Powered by [Pollinations.ai](https://pollinations.ai) free API. Optionally bring your own API key for any OpenAI-compatible endpoint.
+Powered by the [Pollinations.ai](https://pollinations.ai) free API. Optionally bring your own key for any OpenAI-compatible endpoint.
+
+## Demo
+
+```text
+$ freechat "Explain quantum computing in one sentence"
+
+⚡ FreeChat — zero-config AI chat in your terminal
+  model     openai-fast
+  endpoint  https://text.pollinations.ai/
+
+You > Explain quantum computing in one sentence
+
+Quantum computing harnesses quantum-mechanical phenomena such as
+superposition and entanglement to process information in ways that
+classical computers cannot.
+
+3.2s · ~48 tokens · turn 1
+```
 
 ## Features
 
-- **Zero config** — works out of the box with Pollinations free API
-- **Multi-model** — openai, mistral, deepseek, qwen, gemini, llama, grok, claude and more
-- **Streaming** — real-time streaming with Markdown rendering
+- **Zero config** — works out of the box with the Pollinations free API
+- **Streaming** — real-time output with Markdown rendering and a thinking spinner
 - **Multi-turn** — conversation context preserved, with token estimation
-- **Presets** — built-in role presets: coding, creative, translator, shell, tutor…
+- **Role presets** — built-in presets: coding, creative, translator, shell, tutor…
+- **Model switching** — `/model` at runtime; point `--base-url` at any OpenAI-compatible endpoint to use your own key
 - **Persistence** — save/load conversations (JSON), export to Markdown
 - **Pipe mode** — pipe input from stdin for scripting
-- **Image generation** — generate image URLs via Pollinations
+- **Image generation** — generate Pollinations image URLs via `/image`
+- **Session stats** — turns, tokens and timing via `/stats`
 - **Clipboard** — copy responses with `/copy`
-- **Retry** — automatic retry with exponential backoff
-- **Rich UI** — syntax highlighting, tables, panels, progress info
+- **Retry** — automatic retry with exponential backoff on rate limits
+- **Rich UI** — syntax highlighting, tables, panels, live spinners
+
+> **Note on models:** the anonymous Pollinations free tier currently serves the `openai-fast` model (GPT-OSS 20B). For more models, configure any OpenAI-compatible endpoint with `--base-url` / `--api-key`.
 
 ## Installation
 
@@ -32,6 +58,8 @@ cd freechat-cli
 pip install .
 ```
 
+Requires Python 3.9+. Optional extras: `pyperclip` (cross-platform clipboard), `tiktoken` (accurate token counts).
+
 ## Quick Start
 
 ```bash
@@ -42,9 +70,9 @@ freechat "Explain quantum computing simply"
 freechat
 
 # Use a different model
-freechat -m deepseek "Write a haiku about debugging"
+freechat -m openai-fast "Write a haiku about debugging"
 
-# Apply a preset
+# Apply a role preset
 freechat -p coding "Write a Python web scraper"
 
 # Pipe input
@@ -58,145 +86,77 @@ echo "Explain this error:" | cat - error.log | freechat
 | `/model <name>` | Switch model (auto-saves config) |
 | `/system <prompt>` | Set system prompt |
 | `/preset [name]` | List or apply role preset |
-| `/save [file]` | Save conversation to JSON |
-| `/load <file>` | Load conversation |
-| `/export [file]` | Export as Markdown |
+| `/save [file]` | Save conversation (JSON) |
+| `/load <file>` | Load a saved conversation |
+| `/export [file]` | Export conversation as Markdown |
 | `/history` | List saved conversations |
-| `/clear` | Clear conversation history |
-| `/reset` | Reset conversation (alias for /clear) |
-| `/undo` | Undo last exchange |
-| `/models` | List available models |
+| `/stats` | Show session statistics |
 | `/tokens` | Show estimated token usage |
-| `/config` | Show current config |
-| `/config save` | Save current config |
+| `/undo` | Undo the last exchange |
+| `/clear` | Clear conversation history |
+| `/models` | List available models |
+| `/config [save]` | Show or save current config |
+| `/last` | Re-print the last response |
 | `/copy` | Copy last response to clipboard |
-| `/last` | Show last response |
-| `/image <desc>` | Generate image URL |
-| `/help` | Show commands |
-| `/quit` | Exit (also /q, /exit) |
-
-## CLI Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `query` | — | One-shot query (omit for interactive) |
-| `--model`, `-m` | openai | Model to use |
-| `--system`, `-s` | none | System prompt |
-| `--preset`, `-p` | — | Apply a role preset |
-| `--api-key` | none | API key (not required for Pollinations) |
-| `--base-url` | https://text.pollinations.ai/openai | API base URL |
-| `--max-history` | 20 | Max conversation turns to keep |
-| `--timeout` | 120 | Request timeout in seconds |
-| `--max-retries` | 2 | Max retries on rate limit/timeout |
-| `--no-stream` | false | Disable streaming output |
-| `--list-models` | — | List available models and exit |
-| `--version`, `-v` | — | Show version |
-
-## Role Presets
-
-Built-in presets for common use cases:
-
-| Preset | Description |
-|--------|-------------|
-| `coding` | Expert coding assistant |
-| `creative` | Creative writing partner |
-| `translator` | Professional translator (EN↔ZH) |
-| `concise` | Brief and direct answers |
-| `detailed` | Thorough explanations with examples |
-| `shell` | Shell and CLI expert |
-| `tutor` | Patient step-by-step tutor |
-| `reviewer` | Code review with severity ratings |
-
-```bash
-# Apply preset via CLI
-freechat -p coding "Refactor this function"
-
-# Or in interactive mode
-/preset coding
-```
-
-## Examples
-
-```bash
-# One-shot with DeepSeek
-freechat -m deepseek "Explain transformer architecture"
-
-# Custom provider with API key
-freechat --base-url https://api.groq.com/openai/v1 --api-key gsk_xxx -m llama33-70b "Hello"
-
-# Coding preset with system prompt override
-freechat -p coding -s "Focus on Python" "Write a FastAPI app"
-
-# Slow model with higher timeout
-freechat --timeout 180 -m deepseek-r1 "Solve: prove the Riemann hypothesis"
-
-# Pipe a file into the chat
-cat error.log | freechat "What's wrong with this output?"
-
-# Generate an image URL (interactive mode)
-/image a cat wearing sunglasses on a beach
-
-# Export conversation to Markdown
-/export my-chat.md
-```
+| `/image <desc>` | Generate an image URL |
+| `/help` | Show help |
+| `/quit` | Exit (`/q`, `/exit`) |
 
 ## Configuration
 
-`~/.freechat/config.json`:
+Config is stored at `~/.freechat/config.json`. Every field can be overridden by CLI flags or environment variables.
 
-```json
-{
-  "model": "openai",
-  "system_prompt": "",
-  "max_history": 20,
-  "api_key": "",
-  "base_url": "https://text.pollinations.ai/openai",
-  "timeout": 120,
-  "max_retries": 2
-}
-```
+| Field | Flag | Env var | Default |
+|-------|------|---------|---------|
+| `model` | `--model` | — | `openai` |
+| `base_url` | `--base-url` | — | Pollinations native API |
+| `api_key` | `--api-key` | `FREECHAT_API_KEY` | *(none — not needed)* |
+| `system_prompt` | `--system` | — | *(none)* |
+| `max_history` | `--max-history` | — | `20` |
+| `timeout` | `--timeout` | — | `120` |
+| `max_retries` | `--max-retries` | — | `2` |
 
-Environment variable: `FREECHAT_API_KEY`
+## FAQ
 
-## Available Free Models
+**Is it really free?**
+Yes. The default endpoint is Pollinations' anonymous free tier — no account, no key.
 
-```bash
-freechat --list-models
-```
-
-Common: `openai`, `openai-large`, `mistral`, `mistral-large`, `deepseek`, `deepseek-r1`, `qwen`, `qwen-coder`, `gemini`, `llama`, `grok`, `claude`
-
-## Optional Dependencies
+**Which models can I use?**
+Anonymous access currently maps to `openai-fast` (GPT-OSS 20B). To use other models, bring your own OpenAI-compatible endpoint:
 
 ```bash
-# Clipboard support for /copy
-pip install freechat-cli[clipboard]
-
-# More accurate token estimation
-pip install freechat-cli[token-accuracy]
+freechat --base-url https://api.example.com/v1 --api-key sk-... -m my-model
 ```
+
+**I hit a rate limit (HTTP 429). What now?**
+Free-tier rate limits reset over time; FreeChat retries automatically with exponential backoff. Wait a moment and try again.
+
+**Does it work on Windows / macOS / Linux?**
+Yes — pure Python with cross-platform dependencies.
+
+## Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| `Pollinations API error: HTTP 429` | Rate limited — retry later or reduce request frequency |
+| `Cannot connect to Pollinations` | Check network/DNS; corporate proxies may block the endpoint |
+| Clipboard does nothing | `pip install pyperclip`, or use OS tools (`xclip`/`pbcopy`) |
+| Token counts look rough | `pip install tiktoken` for exact counts |
 
 ## Development
 
 ```bash
 git clone https://github.com/xiaotian1171/freechat-cli.git
 cd freechat-cli
-pip install -e ".[dev]"
-
-# Run tests
-pytest tests/ -v
-
-# Lint
-ruff check .
-ruff format .
+pip install -e . -r requirements.txt
+python -m pytest tests/ -v
 ```
-
-## Requirements
-
-- Python 3.9+
-- openai >= 1.0
-- rich >= 13.0
 
 ## License
 
-MIT
+[MIT](LICENSE) © [xiaotian1171](https://github.com/xiaotian1171)
+
+## Acknowledgements
+
+- [Pollinations.ai](https://pollinations.ai) — free AI APIs powering the default endpoint
+- [Rich](https://github.com/Textualize/rich) — terminal UI

@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-DEFAULT_BASE_URL = "https://text.pollinations.ai/openai"
+DEFAULT_BASE_URL = "https://text.pollinations.ai/"
 DEFAULT_MODEL = "openai"
 DEFAULT_MAX_HISTORY = 20
 DEFAULT_TIMEOUT = 120

@@ -15,7 +15,7 @@ class TestConfig:
         assert config.system_prompt is None
         assert config.max_history == 20
         assert config.api_key is None
-        assert config.base_url == "https://text.pollinations.ai/openai"
+        assert config.base_url == "https://text.pollinations.ai/"
         assert config.timeout == 120
         assert config.max_retries == 2
 
